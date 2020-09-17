@@ -45,6 +45,8 @@ func (c *ServiceManagementPlugin) Run(cliConnection plugin.CliConnection, args [
 			return
 		}
 		serviceManagerName := args[1]
+		serviceOfferingName := strings.ToLower(*serviceOfferingName)
+		servicePlanName := strings.ToLower(*servicePlanName)
 
 		// validate output format
 		outputFormat := strings.ToLower(*outputFormat)
@@ -97,7 +99,7 @@ func (c *ServiceManagementPlugin) Run(cliConnection plugin.CliConnection, args [
 		req2, err := http.NewRequest("GET", url2+"/v1/service_offerings", nil)
 		handleError(err)
 		q2 := req2.URL.Query()
-		q2.Add("fieldQuery", "catalog_name eq '"+*serviceOfferingName+"'")
+		q2.Add("fieldQuery", "catalog_name eq '"+serviceOfferingName+"'")
 		req2.URL.RawQuery = q2.Encode()
 		req2.Header.Set("Authorization", "Bearer "+accessToken)
 		res2, err := cli.Do(req2)
@@ -108,7 +110,7 @@ func (c *ServiceManagementPlugin) Run(cliConnection plugin.CliConnection, args [
 		numItems, err := jsonparser.GetInt(body2Bytes, "num_items")
 		handleError(err)
 		if numItems < 1 {
-			fmt.Printf("Service offering not found: %s\n", *serviceOfferingName)
+			fmt.Printf("Service offering not found: %s\n", serviceOfferingName)
 		} else {
 			// get id of service plan for offering
 			serviceOfferingId, err := jsonparser.GetString(body2Bytes, "items", "[0]", "id")
@@ -117,7 +119,7 @@ func (c *ServiceManagementPlugin) Run(cliConnection plugin.CliConnection, args [
 			req3, err := http.NewRequest("GET", url3+"/v1/service_plans", nil)
 			handleError(err)
 			q3 := req3.URL.Query()
-			q3.Add("fieldQuery", "catalog_name eq '"+*servicePlanName+"' and service_offering_id eq '"+serviceOfferingId+"'")
+			q3.Add("fieldQuery", "catalog_name eq '"+servicePlanName+"' and service_offering_id eq '"+serviceOfferingId+"'")
 			req3.URL.RawQuery = q3.Encode()
 			req3.Header.Set("Authorization", "Bearer "+accessToken)
 			res3, err := cli.Do(req3)
@@ -128,7 +130,7 @@ func (c *ServiceManagementPlugin) Run(cliConnection plugin.CliConnection, args [
 			numItems, err = jsonparser.GetInt(body3Bytes, "num_items")
 			handleError(err)
 			if numItems < 1 {
-				fmt.Printf("Service plan not found: %s\n", *servicePlanName)
+				fmt.Printf("Service plan not found: %s\n", servicePlanName)
 			} else {
 				servicePlanId, err := jsonparser.GetString(body3Bytes, "items", "[0]", "id")
 
@@ -151,11 +153,11 @@ func (c *ServiceManagementPlugin) Run(cliConnection plugin.CliConnection, args [
 
 				switch outputFormat {
 				case "json":
-					fmt.Printf(`{"service_offering": "%s", "service_plan": "%s", "num_items": %d, "items": [`, *serviceOfferingName, *servicePlanName, numItems)
+					fmt.Printf(`{"service_offering": "%s", "service_plan": "%s", "num_items": %d, "items": [`, serviceOfferingName, servicePlanName, numItems)
 				case "sqltools":
 					fmt.Printf(`"sqltools.connections": [`)
 				case "txt":
-					fmt.Printf("%d items found for service offering %s and service plan %s.\n", numItems, *serviceOfferingName, *servicePlanName)
+					fmt.Printf("%d items found for service offering %s and service plan %s.\n", numItems, serviceOfferingName, servicePlanName)
 				}
 
 				// for each item
@@ -193,8 +195,12 @@ func (c *ServiceManagementPlugin) Run(cliConnection plugin.CliConnection, args [
 					url, _ := jsonparser.GetString(body5Bytes, "items", "[0]", "credentials", "url")
 					user, _ := jsonparser.GetString(body5Bytes, "items", "[0]", "credentials", "user")
 					password, _ := jsonparser.GetString(body5Bytes, "items", "[0]", "credentials", "password")
-					hdiuser, _ := jsonparser.GetString(body5Bytes, "items", "[0]", "credentials", "hdi_user")
-					hdipassword, _ := jsonparser.GetString(body5Bytes, "items", "[0]", "credentials", "hdi_password")
+					var hdiuser = ""
+					var hdipassword = ""
+					if servicePlanName == "hdi-shared" {
+						hdiuser, _ = jsonparser.GetString(body5Bytes, "items", "[0]", "credentials", "hdi_user")
+						hdipassword, _ = jsonparser.GetString(body5Bytes, "items", "[0]", "credentials", "hdi_password")
+					}
 
 					if outputFormat == "json" {
 						if item > 1 {
@@ -202,7 +208,10 @@ func (c *ServiceManagementPlugin) Run(cliConnection plugin.CliConnection, args [
 						}
 						fmt.Printf(`{"name": "%s", "id": "%s", "created_at": "%s", "updated_at": "%s", "ready": %t, "usable": %t, "schema": "%s", "host": "%s", "port": "%s", "url": "%s", "driver": "%s"`, name, id, createdAt, updatedAt, ready, usable, schema, host, port, url, driver)
 						if *showCredentials {
-							fmt.Printf(`, "user": "%s", "password": "%s", "hdi_user": "%s", "hdi_password": "%s", "certificate": "%s"`, user, password, hdiuser, hdipassword, certificate)
+							fmt.Printf(`, "user": "%s", "password": "%s", "certificate": "%s"`, user, password, certificate)
+							if servicePlanName == "hdi-shared" {
+								fmt.Printf(`, "hdi_user": "%s", "hdi_password": "%s"`, hdiuser, hdipassword)
+							}
 						}
 						fmt.Printf(`}`)
 					} else if outputFormat == "sqltools" {
@@ -210,12 +219,17 @@ func (c *ServiceManagementPlugin) Run(cliConnection plugin.CliConnection, args [
 							fmt.Printf(`,`)
 						}
 						fmt.Printf(`{"name": "%s", "dialect": "SAPHana", "server": "%s", "port": %s, "database": "%s", "username": "%s", "password": "%s", "connectionTimeout": 30, "hanaOptions": {"encrypt": true, "sslValidateCertificate": true, "sslCryptoProvider": "openssl", "sslTrustStore": "%s"}},`, serviceManagerName+":"+name, host, port, schema, user, password, certificate)
-						fmt.Printf(`{"name": "%s", "dialect": "SAPHana", "server": "%s", "port": %s, "database": "%s", "username": "%s", "password": "%s", "connectionTimeout": 30, "hanaOptions": {"encrypt": true, "sslValidateCertificate": true, "sslCryptoProvider": "openssl", "sslTrustStore": "%s"}}`, serviceManagerName+":"+name+":OWNER", host, port, schema, hdiuser, hdipassword, certificate)
+						if servicePlanName == "hdi-shared" {
+							fmt.Printf(`{"name": "%s", "dialect": "SAPHana", "server": "%s", "port": %s, "database": "%s", "username": "%s", "password": "%s", "connectionTimeout": 30, "hanaOptions": {"encrypt": true, "sslValidateCertificate": true, "sslCryptoProvider": "openssl", "sslTrustStore": "%s"}}`, serviceManagerName+":"+name+":OWNER", host, port, schema, hdiuser, hdipassword, certificate)
+						}
 					} else {
 						//txt
 						fmt.Printf("\nName: %s \nId: %s \nCreatedAt: %s \nUpdatedAt: %s \nReady: %t \nUsable: %t \nSchema: %s \nHost: %s \nPort: %s \nURL: %s \nDriver: %s\n", name, id, createdAt, updatedAt, ready, usable, schema, host, port, url, driver)
 						if *showCredentials {
-							fmt.Printf("User: %s \nPassword: %s \nHDIUser: %s \nHDIPassword: %s \nCertificate: %s \n", user, password, hdiuser, hdipassword, certificate)
+							fmt.Printf("User: %s \nPassword: %s \nCertificate: %s \n", user, password, certificate)
+							if servicePlanName == "hdi-shared" {
+								fmt.Printf("HDIUser: %s \nHDIPassword: %s \n", hdiuser, hdipassword)
+							}
 						}
 					}
 
