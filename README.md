@@ -64,7 +64,7 @@ Examples:
 
 ```cf smsi my-sm -credentials > my-results.txt```
 
-```cf smsi my-sm -credentials -o JSON -offering hanatrial -plan schema```
+```cf smsi my-sm -credentials -o SQLTools -offering hanatrial -plan schema```
 
 For more information, see the command help output available via `cf [command] --help` or `cf help [command]`.
 
