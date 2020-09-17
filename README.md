@@ -42,7 +42,7 @@ The ServiceManagement CF plugin supports the following commands:
 
 Command Name | Command Description
 --- | ---
-`service-manager-service-instances` `smsi` | Show service manager service instances for a service offering and plan. The default service offering is `hana` and the default service plan is `hdi-shared`. Defaults can be overriden with the `-offering`and/or `-plan`flags. Use the `-credentials` flag to show login credentials and certificates. Use the `-json`flag to show results in JSON format. It's possible to pipe the information to a file as shown in the examples below.
+`service-manager-service-instances` `smsi` | Show service manager service instances for a service offering and plan. The default service offering is `hana` and the default service plan is `hdi-shared`. Defaults can be overriden with the `-offering`and/or `-plan`flags. Use the `-credentials` flag to show login credentials and certificates. Use the `-o` flag to show results in JSON, SQLTools or Txt format. It's possible to pipe the information to a file as shown in the examples below. When using `-o SQLTools` the `-credentials` flag will be set automatically.
 
 Usage:
 
@@ -52,17 +52,19 @@ Examples:
 
 ```cf service-manager-service-instances my-sm```
 
-```cf service-manager-service-instances my-sm -json```
+```cf service-manager-service-instances my-sm -o SQLTools```
 
 ```cf service-manager-service-instances my-sm -credentials```
 
-```cf smsi my-sm -credentials -json```
+```cf smsi my-sm -credentials -o JSON```
 
-```cf smsi my-sm -credentials -json > my-results.json```
+```cf smsi my-sm -credentials -o JSON > my-results.json```
+
+```cf smsi my-sm -o SQLTools > settings.json```
 
 ```cf smsi my-sm -credentials > my-results.txt```
 
-```cf smsi my-sm -credentials -json -offering hanatrial -plan schema```
+```cf smsi my-sm -credentials -o SQLTools -offering hanatrial -plan schema```
 
 For more information, see the command help output available via `cf [command] --help` or `cf help [command]`.
 

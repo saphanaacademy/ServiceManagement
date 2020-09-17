@@ -6,6 +6,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"os"
+	"regexp"
 	"strings"
 
 	"code.cloudfoundry.org/cli/plugin"
@@ -17,7 +18,7 @@ type ServiceManagementPlugin struct {
 	serviceOfferingName *string
 	servicePlanName     *string
 	showCredentials     *bool
-	showJSON            *bool
+	outputFormat        *string
 }
 
 func handleError(err error) {
@@ -34,7 +35,7 @@ func (c *ServiceManagementPlugin) Run(cliConnection plugin.CliConnection, args [
 	serviceOfferingName := flags.String("offering", "hana", "Service offering")
 	servicePlanName := flags.String("plan", "hdi-shared", "Service plan")
 	showCredentials := flags.Bool("credentials", false, "Show credentials")
-	showJSON := flags.Bool("json", false, "Show as JSON")
+	outputFormat := flags.String("o", "Txt", "Show as JSON | SQLTools | Txt)")
 	err := flags.Parse(args[2:])
 	handleError(err)
 
@@ -44,6 +45,17 @@ func (c *ServiceManagementPlugin) Run(cliConnection plugin.CliConnection, args [
 			return
 		}
 		serviceManagerName := args[1]
+		serviceOfferingName := strings.ToLower(*serviceOfferingName)
+		servicePlanName := strings.ToLower(*servicePlanName)
+
+		// validate output format
+		outputFormat := strings.ToLower(*outputFormat)
+		switch outputFormat {
+		case "json", "sqltools", "txt":
+		default:
+			fmt.Println("Output format must be JSON, SQLTools or Txt")
+			return
+		}
 
 		// check instance exists
 		_, err := cliConnection.GetService(serviceManagerName)
@@ -87,7 +99,7 @@ func (c *ServiceManagementPlugin) Run(cliConnection plugin.CliConnection, args [
 		req2, err := http.NewRequest("GET", url2+"/v1/service_offerings", nil)
 		handleError(err)
 		q2 := req2.URL.Query()
-		q2.Add("fieldQuery", "catalog_name eq '"+*serviceOfferingName+"'")
+		q2.Add("fieldQuery", "catalog_name eq '"+serviceOfferingName+"'")
 		req2.URL.RawQuery = q2.Encode()
 		req2.Header.Set("Authorization", "Bearer "+accessToken)
 		res2, err := cli.Do(req2)
@@ -98,7 +110,7 @@ func (c *ServiceManagementPlugin) Run(cliConnection plugin.CliConnection, args [
 		numItems, err := jsonparser.GetInt(body2Bytes, "num_items")
 		handleError(err)
 		if numItems < 1 {
-			fmt.Printf("Service offering not found: %s\n", *serviceOfferingName)
+			fmt.Printf("Service offering not found: %s\n", serviceOfferingName)
 		} else {
 			// get id of service plan for offering
 			serviceOfferingId, err := jsonparser.GetString(body2Bytes, "items", "[0]", "id")
@@ -107,7 +119,7 @@ func (c *ServiceManagementPlugin) Run(cliConnection plugin.CliConnection, args [
 			req3, err := http.NewRequest("GET", url3+"/v1/service_plans", nil)
 			handleError(err)
 			q3 := req3.URL.Query()
-			q3.Add("fieldQuery", "catalog_name eq '"+*servicePlanName+"' and service_offering_id eq '"+serviceOfferingId+"'")
+			q3.Add("fieldQuery", "catalog_name eq '"+servicePlanName+"' and service_offering_id eq '"+serviceOfferingId+"'")
 			req3.URL.RawQuery = q3.Encode()
 			req3.Header.Set("Authorization", "Bearer "+accessToken)
 			res3, err := cli.Do(req3)
@@ -118,7 +130,7 @@ func (c *ServiceManagementPlugin) Run(cliConnection plugin.CliConnection, args [
 			numItems, err = jsonparser.GetInt(body3Bytes, "num_items")
 			handleError(err)
 			if numItems < 1 {
-				fmt.Printf("Service plan not found: %s\n", *servicePlanName)
+				fmt.Printf("Service plan not found: %s\n", servicePlanName)
 			} else {
 				servicePlanId, err := jsonparser.GetString(body3Bytes, "items", "[0]", "id")
 
@@ -138,10 +150,14 @@ func (c *ServiceManagementPlugin) Run(cliConnection plugin.CliConnection, args [
 				handleError(err)
 				numItems, err = jsonparser.GetInt(body4Bytes, "num_items")
 				handleError(err)
-				if *showJSON {
-					fmt.Printf(`{"service_offering": "%s", "service_plan": "%s", "num_items": %d, "items": [`, *serviceOfferingName, *servicePlanName, numItems)
-				} else {
-					fmt.Printf("%d items found for service offering %s and service plan %s.\n", numItems, *serviceOfferingName, *servicePlanName)
+
+				switch outputFormat {
+				case "json":
+					fmt.Printf(`{"service_offering": "%s", "service_plan": "%s", "num_items": %d, "items": [`, serviceOfferingName, servicePlanName, numItems)
+				case "sqltools":
+					fmt.Printf(`"sqltools.connections": [`)
+				case "txt":
+					fmt.Printf("%d items found for service offering %s and service plan %s.\n", numItems, serviceOfferingName, servicePlanName)
 				}
 
 				// for each item
@@ -174,31 +190,56 @@ func (c *ServiceManagementPlugin) Run(cliConnection plugin.CliConnection, args [
 					driver, _ := jsonparser.GetString(body5Bytes, "items", "[0]", "credentials", "driver")
 					schema, _ := jsonparser.GetString(body5Bytes, "items", "[0]", "credentials", "schema")
 					certificate, _ := jsonparser.GetString(body5Bytes, "items", "[0]", "credentials", "certificate")
+					re := regexp.MustCompile(`\n`)
+					certificate = re.ReplaceAllString(certificate, "")
 					url, _ := jsonparser.GetString(body5Bytes, "items", "[0]", "credentials", "url")
 					user, _ := jsonparser.GetString(body5Bytes, "items", "[0]", "credentials", "user")
 					password, _ := jsonparser.GetString(body5Bytes, "items", "[0]", "credentials", "password")
-					hdiuser, _ := jsonparser.GetString(body5Bytes, "items", "[0]", "credentials", "hdi_user")
-					hdipassword, _ := jsonparser.GetString(body5Bytes, "items", "[0]", "credentials", "hdi_password")
+					var hdiuser = ""
+					var hdipassword = ""
+					if servicePlanName == "hdi-shared" {
+						hdiuser, _ = jsonparser.GetString(body5Bytes, "items", "[0]", "credentials", "hdi_user")
+						hdipassword, _ = jsonparser.GetString(body5Bytes, "items", "[0]", "credentials", "hdi_password")
+					}
 
-					if *showJSON {
+					if outputFormat == "json" {
 						if item > 1 {
 							fmt.Printf(`,`)
 						}
 						fmt.Printf(`{"name": "%s", "id": "%s", "created_at": "%s", "updated_at": "%s", "ready": %t, "usable": %t, "schema": "%s", "host": "%s", "port": "%s", "url": "%s", "driver": "%s"`, name, id, createdAt, updatedAt, ready, usable, schema, host, port, url, driver)
 						if *showCredentials {
-							fmt.Printf(`, "user": "%s", "password": "%s", "hdi_user": "%s", "hdi_password": "%s", "certificate": "%s"`, user, password, hdiuser, hdipassword, certificate)
+							fmt.Printf(`, "user": "%s", "password": "%s", "certificate": "%s"`, user, password, certificate)
+							if servicePlanName == "hdi-shared" {
+								fmt.Printf(`, "hdi_user": "%s", "hdi_password": "%s"`, hdiuser, hdipassword)
+							}
 						}
 						fmt.Printf(`}`)
+					} else if outputFormat == "sqltools" {
+						if item > 1 {
+							fmt.Printf(`,`)
+						}
+						fmt.Printf(`{"name": "%s", "dialect": "SAPHana", "server": "%s", "port": %s, "database": "%s", "username": "%s", "password": "%s", "connectionTimeout": 30, "hanaOptions": {"encrypt": true, "sslValidateCertificate": true, "sslCryptoProvider": "openssl", "sslTrustStore": "%s"}},`, serviceManagerName+":"+name, host, port, schema, user, password, certificate)
+						if servicePlanName == "hdi-shared" {
+							fmt.Printf(`{"name": "%s", "dialect": "SAPHana", "server": "%s", "port": %s, "database": "%s", "username": "%s", "password": "%s", "connectionTimeout": 30, "hanaOptions": {"encrypt": true, "sslValidateCertificate": true, "sslCryptoProvider": "openssl", "sslTrustStore": "%s"}}`, serviceManagerName+":"+name+":OWNER", host, port, schema, hdiuser, hdipassword, certificate)
+						}
 					} else {
+						//txt
 						fmt.Printf("\nName: %s \nId: %s \nCreatedAt: %s \nUpdatedAt: %s \nReady: %t \nUsable: %t \nSchema: %s \nHost: %s \nPort: %s \nURL: %s \nDriver: %s\n", name, id, createdAt, updatedAt, ready, usable, schema, host, port, url, driver)
 						if *showCredentials {
-							fmt.Printf("User: %s \nPassword: %s \nHDIUser: %s \nHDIPassword: %s \nCertificate: %s \n", user, password, hdiuser, hdipassword, certificate)
+							fmt.Printf("User: %s \nPassword: %s \nCertificate: %s \n", user, password, certificate)
+							if servicePlanName == "hdi-shared" {
+								fmt.Printf("HDIUser: %s \nHDIPassword: %s \n", hdiuser, hdipassword)
+							}
 						}
 					}
+
 				}, "items")
 
-				if *showJSON {
+				switch outputFormat {
+				case "json":
 					fmt.Println(`]}`)
+				case "sqltools":
+					fmt.Println(`],`)
 				}
 			}
 
@@ -229,10 +270,10 @@ func (c *ServiceManagementPlugin) GetMetadata() plugin.PluginMetadata {
 				Alias:    "smsi",
 				HelpText: "Show service manager service instances for a service offering and plan.",
 				UsageDetails: plugin.Usage{
-					Usage: "cf service-manager-service-instances <SERVICE_MANAGER_INSTANCE> [-offering <SERVICE_OFFERING>] [-plan <SERVICE_PLAN>] [-credentials] [-json]",
+					Usage: "cf service-manager-service-instances <SERVICE_MANAGER_INSTANCE> [-offering <SERVICE_OFFERING>] [-plan <SERVICE_PLAN>] [-credentials] [-o JSON | SQLTools | Txt]",
 					Options: map[string]string{
 						"credentials": "Show credentials",
-						"json":        "Show as JSON",
+						"o":           "Show as JSON | SQLTools | Txt (default 'Txt')",
 						"offering":    "Service offering (default 'hana')",
 						"plan":        "Service plan (default 'hdi-shared')",
 					},
