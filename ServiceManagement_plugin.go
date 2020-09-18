@@ -7,7 +7,10 @@ import (
 	"net/http"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
+
+	plugin_models "code.cloudfoundry.org/cli/plugin/models"
 
 	"code.cloudfoundry.org/cli/plugin"
 
@@ -36,15 +39,88 @@ func (c *ServiceManagementPlugin) Run(cliConnection plugin.CliConnection, args [
 	servicePlanName := flags.String("plan", "hdi-shared", "Service plan")
 	showCredentials := flags.Bool("credentials", false, "Show credentials")
 	outputFormat := flags.String("o", "Txt", "Show as JSON | SQLTools | Txt)")
-	err := flags.Parse(args[2:])
+	err := flags.Parse(args[1:])
 	handleError(err)
 
+	serviceNameGiven := false
+
 	if args[0] == "service-manager-service-instances" {
-		if len(args) < 2 {
-			fmt.Println("Please specify an instance of service manager")
-			return
+		/*
+			if len(args) < 2 {
+				fmt.Println("Please specify an instance of service manager")
+				return
+			}
+		*/
+
+		// https://github.com/cloudfoundry/cli/tree/master/plugin/plugin_examples
+		// https://github.com/cloudfoundry/cli/blob/master/plugin/plugin_examples/DOC.md
+
+		// org := plugin_models.Organization{}
+		// org, err = cliConnection.GetCurrentOrg()
+		// handleError(err)
+		// fmt.Println("org = " + org.OrganizationFields.Name)
+
+		serviceManagerName := "Unknown"
+		//fmt.Println("args[0] = " + args[0])
+		//fmt.Println("args[1] = " + args[1])
+
+		if len(args) > 1 {
+			if args[1][0] == '-' {
+				//fmt.Println("no sm in args")
+				err = flags.Parse(args[1:])
+				handleError(err)
+			} else {
+				serviceNameGiven = true
+				serviceManagerName = args[1]
+				err = flags.Parse(args[2:])
+				handleError(err)
+			}
 		}
-		serviceManagerName := args[1]
+
+		// return
+
+		if !serviceNameGiven {
+
+			svcs := []plugin_models.GetServices_Model{}
+
+			svcs, err = cliConnection.GetServices()
+			handleError(err)
+
+			foundSvcs := []plugin_models.GetServices_Model{}
+
+			for i := 0; i < len(svcs); i++ {
+				//fmt.Println("Service Name: " + svcs[i].Name)
+				if svcs[i].Service.Name == "service-manager" {
+					//fmt.Println("Service Type: " + svcs[i].Service.Name)
+					if svcs[i].ServicePlan.Name == "container" {
+						//fmt.Println("Service Plan: " + svcs[i].ServicePlan.Name)
+						foundSvcs = append(foundSvcs, svcs[i])
+					}
+				}
+			}
+
+			if len(foundSvcs) >= 1 {
+				if len(foundSvcs) == 1 {
+					serviceManagerName = foundSvcs[0].Name
+				} else {
+					for i := 0; i < len(foundSvcs); i++ {
+						fmt.Println(fmt.Sprintf("%d :", i) + foundSvcs[i].Name)
+					}
+					fmt.Print("Which service-manager?: ")
+					var input string
+					fmt.Scanln(&input)
+					//fmt.Print(input)
+					smidx, _ := strconv.Atoi(input)
+					serviceManagerName = foundSvcs[smidx].Name
+				}
+			} else {
+				fmt.Println("Please create at least one instance of service-manager with plan type container.")
+				return
+			}
+		}
+
+		fmt.Println("service manager = " + serviceManagerName)
+
 		serviceOfferingName := strings.ToLower(*serviceOfferingName)
 		servicePlanName := strings.ToLower(*servicePlanName)
 
@@ -62,7 +138,7 @@ func (c *ServiceManagementPlugin) Run(cliConnection plugin.CliConnection, args [
 		handleError(err)
 
 		// create service key
-		serviceKeyName := "sk-" + args[0]
+		serviceKeyName := "sk-" + serviceManagerName
 		_, err = cliConnection.CliCommandWithoutTerminalOutput("create-service-key", serviceManagerName, serviceKeyName)
 		handleError(err)
 
@@ -239,7 +315,7 @@ func (c *ServiceManagementPlugin) Run(cliConnection plugin.CliConnection, args [
 				case "json":
 					fmt.Println(`]}`)
 				case "sqltools":
-					fmt.Println(`],`)
+					fmt.Println(`]`)
 				}
 			}
 
@@ -257,7 +333,7 @@ func (c *ServiceManagementPlugin) GetMetadata() plugin.PluginMetadata {
 		Version: plugin.VersionType{
 			Major: 1,
 			Minor: 0,
-			Build: 0,
+			Build: 3,
 		},
 		MinCliVersion: plugin.VersionType{
 			Major: 6,
@@ -267,10 +343,10 @@ func (c *ServiceManagementPlugin) GetMetadata() plugin.PluginMetadata {
 		Commands: []plugin.Command{
 			{
 				Name:     "service-manager-service-instances",
-				Alias:    "smsi",
+				Alias:    "sm",
 				HelpText: "Show service manager service instances for a service offering and plan.",
 				UsageDetails: plugin.Usage{
-					Usage: "cf service-manager-service-instances <SERVICE_MANAGER_INSTANCE> [-offering <SERVICE_OFFERING>] [-plan <SERVICE_PLAN>] [-credentials] [-o JSON | SQLTools | Txt]",
+					Usage: "cf service-manager-service-instances [SERVICE_MANAGER_INSTANCE] [-offering <SERVICE_OFFERING>] [-plan <SERVICE_PLAN>] [--credentials] [-o JSON | SQLTools | Txt]",
 					Options: map[string]string{
 						"credentials": "Show credentials",
 						"o":           "Show as JSON | SQLTools | Txt (default 'Txt')",
