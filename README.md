@@ -1,5 +1,7 @@
-# ServiceManagement CF CLI Plugin
+# Deprecated
+This plugin has been superseded by [service management plugin for Cloud Foundry tools](https://github.com/SAP/cf-cli-smsi-plugin) which is available in the CF Community - please use that one instead.
 
+# ServiceManagement CF CLI Plugin
 This is a Cloud Foundry CLI plugin designed to make it easier when using the [Service Management](https://help.sap.com/viewer/product/SERVICEMANAGEMENT/Cloud/en-US) service in Cloud Foundry. It uses the service manager REST API to get details of service instances that the service management service has created.
 
 # Requirements
@@ -9,15 +11,6 @@ Installed CloudFoundry CLI - ensure that CloudFoundry CLI is installed and worki
 
 Check whether you have a previous version installed, using the command: `cf plugins`. If the ServiceManagement plugin is already installed, you need to uninstall it first and then to install the new version. You can uninstall the plugin using command `cf uninstall-plugin ServiceManagement`.
 
-## CF Community Plugin Repository
-
-Hopefully the ServiceManagement CF CLI Plugin will soon be available on the CF Community Repository. To install the latest available version of the ServiceManagement CLI Plugin execute the following:
-
-`cf install-plugin ServiceManagement`
-
-If you do not have the community repository in your CF CLI you can add it first by executing:
-
-`cf add-plugin-repo CF-Community https://plugins.cloudfoundry.org`
 
 ## Manual Installation
 
